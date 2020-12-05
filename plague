@@ -204,17 +204,18 @@ async def whohas(state, message, args):
     title = args
     for game in await state.matching_games(title):
         names = sorted(name for name, owns in game.owns.items() if owns)
-        if not names:
-            raise common.Error(f'Noone owns {game.title}. '
+        if names:
+            formatted_names = []
+            for name in names:
+                id = state.db.try_user_id_from_gl_name(name)
+                if id is None:
+                    formatted_names.append(name)
+                else:
+                    formatted_names.append(f'<@{id}>')
+            await reply(message, f'Who owns {game.title}? {and_seq(formatted_names)}.')
+        else:
+            await reply(message, f'Noone owns {game.title}. '
                 'Or more likely you slackers just haven\'t filled in the spreadsheet.')
-        formatted_names = []
-        for name in names:
-            id = state.db.try_user_id_from_gl_name(name)
-            if id is None:
-                formatted_names.append(name)
-            else:
-                formatted_names.append(f'<@{id}>')
-        await reply(message, f'Who owns {game.title}? {and_seq(formatted_names)}.')
 
 ## Misc commands
 
