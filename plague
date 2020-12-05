@@ -260,7 +260,7 @@ def make_client(state):
         if m:
             name = m.group('name')
             args = m.group('args')
-            print(f'Got command {name}, args="{args}"', file=sys.stderr, flush=True)
+            print(f'Got command {name} from {message.author} with args "{args}"', file=sys.stderr, flush=True)
             await handle_command(state, message, name, args)
 
     return client
