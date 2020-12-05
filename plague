@@ -38,7 +38,7 @@ def and_seq(seq):
 def games_for_names(names, gl):
     for name in names:
         if name not in gl.names:
-            raise common.Error(f'There\'s no column in the GL spreadsheet for {name}.')
+            raise common.Error(f'There\'s no column in the GL spreadsheet for {name} (note this is case-sensitive).')
 
     def ok(game):
         return (all(game.owns[name] for name in names) and
