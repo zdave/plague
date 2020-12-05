@@ -73,7 +73,8 @@ def _fixup(game):
     if game.good_players is None:
         return game
 
-    if game.good_players.low > game.max_players:
+    if ((game.good_players.low is not None) and (game.max_players is not None) and
+            (game.good_players.low > game.max_players)):
         # Assume we didn't parse the good players field properly...
         return game._replace(good_players=None)
 
@@ -82,10 +83,11 @@ def _fixup(game):
         low = None
 
     high = game.good_players.high
-    if (high is not None) and (high >= game.max_players):
-        high = None
-    if (high is None) and (low == game.max_players):
-        high = low
+    if game.max_players is not None:
+        if (high is not None) and (high >= game.max_players):
+            high = None
+        if (high is None) and (low is not None) and (low == game.max_players):
+            high = low
 
     return game._replace(good_players=Range(low, high))
 
