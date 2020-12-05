@@ -122,6 +122,8 @@ class State:
         return games_for_names(names, gl)
 
     async def matching_games(self, title):
+        if not title:
+            raise common.Error('You need to give me the name of a game. Jeez.')
         title_lower = title.lower()
         gl = await self.fetch_gl()
         games = []
@@ -134,51 +136,56 @@ class State:
 
 ## Command registry
 
-Command = collections.namedtuple('Command', 'func help')
+Command = collections.namedtuple('Command', 'func args help')
 
 commands = {}
 
-def command(help, name=None):
+def command(help, name=None, args=None):
     def decorator(func):
-        c = Command(func, help)
+        c = Command(func, args, help)
         commands[func.__name__ if name is None else name] = c
         return c
     return decorator
 
 ## User registration commands
 
-@command('Tell me the name you go by in the GL spreadsheet.')
+@command('Tell me the name you go by in the GL spreadsheet. It\'s probably not Jesus.', args='Jesus')
 async def iam(state, message, args):
     name = args
+    if not name:
+        raise common.Error('You need to give me a name. Come on.')
     state.db.set_user_gl_name(message.author.id, name)
     await reply(message, f'{name}? Noted.')
 
 @command('I\'ll tell you what name I think you go by in the GL spreadsheet.')
 async def whoami(state, message, args):
     name = state.db.get_user_gl_name(message.author.id)
-    await reply(message, f'You go by {name} in the GL spreadsheet. At least that\'s what I\'ve got written down here.')
+    await reply(message,
+        f'You go by {name} in the GL spreadsheet. '
+        'At least that\'s what I\'ve got written down here. '
+        'Update this with **!iam Whoever**.')
 
-@command('If that\'s really how you feel, so be it.')
+@command('If that\'s really how you feel, so be it; I\'ll erase all record of you from my database.')
 async def forgetme(state, message, args):
     state.db.delete_user(message.author.id)
     await reply(message, 'Good riddance.')
 
 ## Game list query commands
 
-@command('Tell me who you\'re playing with and I\'ll recommend you some games.')
+@command('Tell me who you\'re playing with and I\'ll recommend you some games.', args='@someone @someone-else')
 async def games(state, message, args):
     ids = get_ids(args)
     games = await state.games_for_ids({message.author.id, *ids})
     await reply(message, f'Perhaps {or_seq(game.title for game in games)}?', also_notify=ids)
 
-@command('Tell me who you\'re playing with and I\'ll pick a game for you.')
+@command('Tell me who you\'re playing with and I\'ll pick a game for you.', args='@someone @someone-else')
 async def game(state, message, args):
     ids = get_ids(args)
     games = await state.games_for_ids({message.author.id, *ids})
     game = random.choice(games)
     await reply(message, f'{game.title}. It has been decided.', also_notify=ids)
 
-@command('I\'ll tell you all I know about a game. Which probably isn\'t much.')
+@command('I\'ll tell you all I know about a game. Which probably isn\'t much.', args='Dota')
 async def deets(state, message, args):
     title = args
     for game in await state.matching_games(title):
@@ -192,7 +199,7 @@ async def deets(state, message, args):
         else:
             await reply(message, f'You slackers haven\'t filled in the details for {game.title} in the spreadsheet.')
 
-@command('Give me the name of a game and I\'ll tell you who\'s got it.')
+@command('Give me the name of a game and I\'ll tell you who\'s got it.', args='Dota')
 async def whohas(state, message, args):
     title = args
     for game in await state.matching_games(title):
@@ -213,7 +220,7 @@ async def whohas(state, message, args):
 
 num_re = re.compile('[0-9]+')
 
-@command('I have a huge dice collection. Let me roll one for you... just tell me the number of sides.')
+@command('I have a huge dice collection. Let me roll one for you... just tell me the number of sides (default is 100; now that\'s a serious die).', args='6')
 async def roll(state, message, args):
     m = num_re.search(args)
     sides = int(m.group()) if m else 100
@@ -224,7 +231,9 @@ async def roll(state, message, args):
 
 @command('Looks like you figured this one out on your own. Good work.')
 async def help(state, message, args):
-    await reply(message, '\n'.join(f'**!{name}**: {command.help}' for name, command in commands.items()))
+    await reply(message, '\n'.join(
+        f'**!{name}{"" if command.args is None else " " + command.args}**: {command.help}'
+        for name, command in commands.items()))
 
 ## Discord client stuff
 
@@ -233,7 +242,8 @@ async def handle_command(state, message, name, args):
         try:
             command = commands[name]
         except KeyError:
-            raise common.Error(f'I can\'t help you with {name}, sorry.')
+            raise common.Error(
+                f'I can\'t help you with {name}, sorry. Say **!help** to get a list of valid commands.')
         else:
             await command.func(state, message, args)
     except common.Error as e:
@@ -262,6 +272,8 @@ def make_client(state):
             args = m.group('args')
             print(f'Got command {name} from {message.author} with args "{args}"', file=sys.stderr, flush=True)
             await handle_command(state, message, name, args)
+        elif re.search(f'<@!?{client.user.id}>', message.content):
+            await reply(message, 'Say **!help** to get a list of valid commands.')
 
     return client
 
