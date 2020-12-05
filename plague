@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+
+import argparse
+import collections
+import contextlib
+import discord
+import os
+import random
+import re
+import sys
+import toml
+import traceback
+
+import common
+import database
+import game_list
+
+## Bot config
+
+class Config:
+    def __init__(self, filename):
+        d = toml.load(filename)
+        dir = os.path.dirname(filename)
+        self.db = os.path.join(dir, d['db'])
+        self.discord_token = d['discord-token']
+        self.gsheets_creds = os.path.join(dir, d['gsheets-creds'])
+        self.game_list_id = d['game-list-id']
+
+## Database management
+
+def init_db(args, cfg):
+    with contextlib.closing(database.Db(cfg.db)) as db:
+        db.init()
+
+## Helper funcs
+
+id_re = re.compile('<@!?([0-9]+)>')
+
+def get_ids(s):
+    return {int(m.group(1)) for m in id_re.finditer(s)}
+
+def conj_seq(seq, conj):
+    l = list(seq)
+    assert l
+    if len(l) > 2:
+        return ', '.join(l[:-1]) + f', {conj} {l[-1]}'
+    return f' {conj} '.join(l)
+
+def or_seq(seq):
+    return conj_seq(seq, 'or')
+
+def and_seq(seq):
+    return conj_seq(seq, 'and')
+
+def games_for_names(names, gl):
+    for name in names:
+        if name not in gl.names:
+            raise common.Error(f'There\'s no column in the GL spreadsheet for {name}.')
+
+    def ok(game):
+        return (all(game.owns[name] for name in names) and
+            ((game.max_players is None) or (len(names) <= game.max_players)))
+
+    def good(game):
+        return ok(game) and ((game.good_players is None) or (len(names) in game.good_players))
+
+    good_games = [game for game in gl.games if good(game)]
+    if good_games:
+        return good_games
+
+    ok_games = [game for game in gl.games if ok(game)]
+    if ok_games:
+        return ok_games
+
+    raise common.Error('Sorry man, got nothin\'. Maybe go outside?')
+
+async def reply(message, response, also_notify=[]):
+    formatted_ids = ' '.join(f'<@{id}>' for id in [message.author.id, *also_notify])
+    sep = '\n' if '\n' in response else ' '
+    await message.channel.send(f'{formatted_ids}{sep}{response}')
+
+## Bot state
+
+class State:
+    def __init__(self, cfg):
+        self.__cfg = cfg
+        self.db = database.Db(cfg.db)
+        self.__gl_session = game_list.Session(cfg.gsheets_creds)
+
+    def close(self):
+        self.db.close()
+
+    async def fetch_gl(self):
+        return await self.__gl_session.fetch(self.__cfg.game_list_id)
+
+    async def games_for_ids(self, ids):
+        names = {self.db.get_user_gl_name(id) for id in ids}
+        gl = await self.fetch_gl()
+        return games_for_names(names, gl)
+
+    async def matching_games(self, title):
+        title_lower = title.lower()
+        gl = await self.fetch_gl()
+        games = []
+        for game in gl.games:
+            if title_lower in game.title.lower():
+                games.append(game)
+        if not games:
+            raise common.Error(f'{title}? Dunno what you\'re talking about mate.')
+        return games
+
+## Command registry
+
+Command = collections.namedtuple('Command', 'func help')
+
+commands = {}
+
+def command(help, name=None):
+    def decorator(func):
+        c = Command(func, help)
+        commands[func.__name__ if name is None else name] = c
+        return c
+    return decorator
+
+## User registration commands
+
+@command('Tell me the name you go by in the GL spreadsheet.')
+async def iam(state, message, args):
+    name = args
+    state.db.set_user_gl_name(message.author.id, name)
+    await reply(message, f'{name}? Noted.')
+
+@command('I\'ll tell you what name I think you go by in the GL spreadsheet.')
+async def whoami(state, message, args):
+    name = state.db.get_user_gl_name(message.author.id)
+    await reply(message, f'You go by {name} in the GL spreadsheet. At least that\'s what I\'ve got written down here.')
+
+@command('If that\'s really how you feel, so be it.')
+async def forgetme(state, message, args):
+    state.db.delete_user(message.author.id)
+    await reply(message, 'Good riddance.')
+
+## Game list query commands
+
+@command('Tell me who you\'re playing with and I\'ll recommend you some games.')
+async def games(state, message, args):
+    ids = get_ids(args)
+    games = await state.games_for_ids({message.author.id, *ids})
+    await reply(message, f'Perhaps {or_seq(game.title for game in games)}?', also_notify=ids)
+
+@command('Tell me who you\'re playing with and I\'ll pick a game for you.')
+async def game(state, message, args):
+    ids = get_ids(args)
+    games = await state.games_for_ids({message.author.id, *ids})
+    game = random.choice(games)
+    await reply(message, f'{game.title}. It has been decided.', also_notify=ids)
+
+@command('I\'ll tell you all I know about a game. Which probably isn\'t much.')
+async def deets(state, message, args):
+    title = args
+    for game in await state.matching_games(title):
+        facts = []
+        if game.max_players is not None:
+            facts.append(f'Max players {game.max_players}.')
+        if game.good_players is not None:
+            facts.append(f'"Good" players {game.good_players}.')
+        if facts:
+            await reply(message, f'{game.title}: {" ".join(facts)}')
+        else:
+            await reply(message, f'You slackers haven\'t filled in the details for {game.title} in the spreadsheet.')
+
+@command('Give me the name of a game and I\'ll tell you who\'s got it.')
+async def whohas(state, message, args):
+    title = args
+    for game in await state.matching_games(title):
+        names = sorted(name for name, owns in game.owns.items() if owns)
+        if not names:
+            raise common.Error(f'Noone owns {game.title}. '
+                'Or more likely you slackers just haven\'t filled in the spreadsheet.')
+        formatted_names = []
+        for name in names:
+            id = state.db.try_user_id_from_gl_name(name)
+            if id is None:
+                formatted_names.append(name)
+            else:
+                formatted_names.append(f'<@{id}>')
+        await reply(message, f'Who owns {game.title}? {and_seq(formatted_names)}.')
+
+## Misc commands
+
+num_re = re.compile('[0-9]+')
+
+@command('I have a huge dice collection. Let me roll one for you... just tell me the number of sides.')
+async def roll(state, message, args):
+    m = num_re.search(args)
+    sides = int(m.group()) if m else 100
+    if sides < 2:
+        raise common.Error('Haha, very funny.')
+    result = random.randrange(1, sides + 1)
+    await reply(message, f'I rolled a d{sides} and got... {result}!')
+
+@command('Looks like you figured this one out on your own. Good work.')
+async def help(state, message, args):
+    await reply(message, '\n'.join(f'**!{name}**: {command.help}' for name, command in commands.items()))
+
+## Discord client stuff
+
+async def handle_command(state, message, name, args):
+    try:
+        try:
+            command = commands[name]
+        except KeyError:
+            raise common.Error(f'I can\'t help you with {name}, sorry.')
+        else:
+            await command.func(state, message, args)
+    except common.Error as e:
+        await reply(message, str(e))
+    except Exception as e:
+        traceback.print_exc()
+        await reply(message, f'Computer says no: {e}')
+
+command_re = re.compile(r'!(?P<name>[a-z]+)(?:\s+|$)(?P<args>.*?)\s*$')
+
+def make_client(state):
+    client = discord.Client()
+
+    @client.event
+    async def on_ready():
+        print(f'Logged in as {client.user}', file=sys.stderr, flush=True)
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            return
+
+        m = command_re.match(message.content)
+        if m:
+            name = m.group('name')
+            args = m.group('args')
+            print(f'Got command {name}, args="{args}"', file=sys.stderr, flush=True)
+            await handle_command(state, message, name, args)
+
+    return client
+
+def run(args, cfg):
+    with contextlib.closing(State(cfg)) as state:
+        client = make_client(state)
+        client.run(cfg.discord_token)
+
+## Top level
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', required=True)
+    subparsers = parser.add_subparsers(dest='subcmd', required=True)
+
+    parser_init_db = subparsers.add_parser('init-db')
+    parser_init_db.set_defaults(func=init_db)
+
+    parser_run = subparsers.add_parser('run')
+    parser_run.set_defaults(func=run)
+
+    args = parser.parse_args()
+
+    cfg = Config(args.config)
+    args.func(args, cfg)
+
+main()
