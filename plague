@@ -15,23 +15,6 @@ import common
 import database
 import game_list
 
-## Bot config
-
-class Config:
-    def __init__(self, filename):
-        d = toml.load(filename)
-        dir = os.path.dirname(filename)
-        self.db = os.path.join(dir, d['db'])
-        self.discord_token = d['discord-token']
-        self.gsheets_creds = os.path.join(dir, d['gsheets-creds'])
-        self.game_list_id = d['game-list-id']
-
-## Database management
-
-def init_db(args, cfg):
-    with contextlib.closing(database.Db(cfg.db)) as db:
-        db.init()
-
 ## Helper funcs
 
 id_re = re.compile('<@!?([0-9]+)>')
@@ -78,6 +61,46 @@ async def reply(message, response, also_notify=[]):
     formatted_ids = ' '.join(f'<@{id}>' for id in [message.author.id, *also_notify])
     sep = '\n' if '\n' in response else ' '
     await message.channel.send(f'{formatted_ids}{sep}{response}')
+
+## Bot config
+
+def config_roots():
+    yield (os.environ.get('XDG_CONFIG_HOME') or
+        os.path.join(os.environ['HOME'], '.config'))
+
+    config_dirs = os.environ.get('XDG_CONFIG_DIRS') or '/etc/xdg'
+    for root in config_dirs.split(':'):
+        if root:
+            yield root
+
+class ConfigNotFoundError(Exception):
+    pass
+
+def find_config():
+    roots = list(config_roots())
+    rel_filename = 'plague/config.toml'
+
+    for root in roots:
+        filename = os.path.join(root, rel_filename)
+        if os.path.exists(filename):
+            return filename
+
+    raise ConfigNotFoundError(f'could not find {rel_filename} in {or_seq(roots)}')
+
+class Config:
+    def __init__(self, filename):
+        d = toml.load(filename)
+        dir = os.path.dirname(filename)
+        self.db = os.path.join(dir, d['db'])
+        self.discord_token = d['discord-token']
+        self.gsheets_creds = os.path.join(dir, d['gsheets-creds'])
+        self.game_list_id = d['game-list-id']
+
+## Database management
+
+def init_db(args, cfg):
+    with contextlib.closing(database.Db(cfg.db)) as db:
+        db.init()
 
 ## Bot state
 
@@ -251,7 +274,7 @@ def run(args, cfg):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', required=True)
+    parser.add_argument('--config')
     subparsers = parser.add_subparsers(dest='subcmd', required=True)
 
     parser_init_db = subparsers.add_parser('init-db')
@@ -261,6 +284,11 @@ def main():
     parser_run.set_defaults(func=run)
 
     args = parser.parse_args()
+    if args.config is None:
+        try:
+            args.config = find_config()
+        except ConfigNotFoundError as e:
+            parser.error(e)
 
     cfg = Config(args.config)
     args.func(args, cfg)
