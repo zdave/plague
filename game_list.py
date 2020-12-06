@@ -65,6 +65,7 @@ _fields = [
     _Field('good_players', re.compile('good.+player', re.IGNORECASE), _num_range),
     _Field('owns', re.compile('who.+owns', re.IGNORECASE), bool, sub_heading_row=2)]
 
+_heading_row = 0
 _data_begin_row = 3
 
 Game = collections.namedtuple('Game', (field.name for field in _fields))
@@ -101,8 +102,8 @@ class _Loc:
 def _get_locs(rows):
     locs = {field.name: _Loc(field) for field in _fields}
     cont_loc = None
-    for col, heading in enumerate(rows[0]):
-        if heading:
+    for col, heading in enumerate(rows[_heading_row]):
+        if heading.strip():
             cont_loc = None
             for loc in locs.values():
                 heading_re = loc.field.heading_re
@@ -116,7 +117,7 @@ def _get_locs(rows):
                         cont_loc = loc
                     break
         elif cont_loc is not None:
-            if rows[cont_loc.field.sub_heading_row][col]:
+            if rows[cont_loc.field.sub_heading_row][col].strip():
                 cont_loc.end_col = col + 1
             else:
                 cont_loc = None
@@ -125,8 +126,19 @@ def _get_locs(rows):
         if loc.begin_col is None:
             raise common.Error(
                 f'I couldn\'t find a heading matching "{loc.field.heading_re.pattern}" in the GL spreadsheet.')
+
         if loc.field.sub_heading_row is not None:
-            loc.sub_headings = rows[loc.field.sub_heading_row][loc.begin_col:loc.end_col]
+            loc.sub_headings = [s.strip() for s in
+                rows[loc.field.sub_heading_row][loc.begin_col:loc.end_col]]
+
+            seen = set()
+            for sub_heading in loc.sub_headings:
+                if sub_heading in seen:
+                    raise common.Error(
+                        'There are multiple columns in the GL spreadsheet under '
+                        f'{rows[_heading_row][loc.begin_col].strip()} with the '
+                        f'same sub-heading ({sub_heading}).')
+                seen.add(sub_heading)
 
     return locs
 
@@ -148,11 +160,7 @@ GameList = collections.namedtuple('GameList', 'names games')
 def _parse(rows):
     locs = _get_locs(rows)
 
-    names = set()
-    for name in locs['owns'].sub_headings:
-        if name in names:
-            raise common.Error(f'There are multiple columns in the GL spreadsheet for {name}.')
-        names.add(name)
+    names = set(locs['owns'].sub_headings)
 
     games = []
     for row in rows[_data_begin_row:]:
