@@ -37,12 +37,14 @@ class Db:
 
     def get_user_gl_name(self, id):
         for row in self.__conn.execute('select gl_name from users where id = ?', (id,)):
-            return row[0]
+            if row[0] is not None:
+                return row[0]
         raise common.Error(
             f'I don\'t know what name <@{id}> goes by in the GL spreadsheet. '
             f'<@{id}> please tell me your name with **!iam Whoever**.')
 
     def try_user_id_from_gl_name(self, gl_name):
         for row in self.__conn.execute('select id from users where gl_name = ?', (gl_name,)):
+            assert row[0] is not None
             return row[0]
         return None
