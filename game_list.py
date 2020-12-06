@@ -103,7 +103,7 @@ def _get_locs(rows):
     locs = {field.name: _Loc(field) for field in _fields}
     cont_loc = None
     for col, heading in enumerate(rows[_heading_row]):
-        if heading.strip():
+        if heading:
             cont_loc = None
             for loc in locs.values():
                 heading_re = loc.field.heading_re
@@ -117,7 +117,7 @@ def _get_locs(rows):
                         cont_loc = loc
                     break
         elif cont_loc is not None:
-            if rows[cont_loc.field.sub_heading_row][col].strip():
+            if rows[cont_loc.field.sub_heading_row][col]:
                 cont_loc.end_col = col + 1
             else:
                 cont_loc = None
@@ -128,16 +128,15 @@ def _get_locs(rows):
                 f'I couldn\'t find a heading matching "{loc.field.heading_re.pattern}" in the GL spreadsheet.')
 
         if loc.field.sub_heading_row is not None:
-            loc.sub_headings = [s.strip() for s in
-                rows[loc.field.sub_heading_row][loc.begin_col:loc.end_col]]
+            loc.sub_headings = rows[loc.field.sub_heading_row][loc.begin_col:loc.end_col]
 
             seen = set()
             for sub_heading in loc.sub_headings:
                 if sub_heading in seen:
                     raise common.Error(
                         'There are multiple columns in the GL spreadsheet under '
-                        f'{rows[_heading_row][loc.begin_col].strip()} with the '
-                        f'same sub-heading ({sub_heading}).')
+                        f'{rows[_heading_row][loc.begin_col]} with the same '
+                        f'sub-heading ({sub_heading}).')
                 seen.add(sub_heading)
 
     return locs
@@ -148,7 +147,6 @@ class _MissingRequiredField(Exception):
 def _parse_field(loc, row):
     values = []
     for s in row[loc.begin_col:loc.end_col]:
-        s = s.strip()
         if loc.field.required and not s:
             raise _MissingRequiredField()
         values.append(loc.field.parse(s))
@@ -158,6 +156,8 @@ def _parse_field(loc, row):
 GameList = collections.namedtuple('GameList', 'names games')
 
 def _parse(rows):
+    rows = [[s.strip() for s in row] for row in rows]
+
     locs = _get_locs(rows)
 
     names = set(locs['owns'].sub_headings)
