@@ -56,6 +56,7 @@ def games_for_names(names, gl):
     raise common.Error('Sorry man, got nothin\'. Maybe go outside?')
 
 async def reply(message, response, also_notify=[]):
+    print(f'Responding to {message.author} with "{response}"', file=sys.stderr, flush=True)
     formatted_ids = ' '.join(f'<@{id}>' for id in [message.author.id, *also_notify])
     sep = '\n' if '\n' in response else ' '
     await message.channel.send(f'{formatted_ids}{sep}{response}')
