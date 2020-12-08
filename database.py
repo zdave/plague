@@ -29,11 +29,9 @@ class Db:
                 self.__conn.execute('update users set gl_name = ? where id = ?', (gl_name, id))
         except sqlite3.IntegrityError:
             # Assume duplicate gl_name
-            conflicting_id = self.try_user_id_from_gl_name(gl_name)
-            if conflicting_id is None:
-                raise common.Error('Someone else has taken that name already.')
-            else:
+            if (conflicting_id := self.try_user_id_from_gl_name(gl_name)) is not None:
                 raise common.Error(f'That name is already taken by <@{conflicting_id}>.')
+            raise common.Error('Someone else has taken that name already.')
 
     def get_user_gl_name(self, id):
         for row in self.__conn.execute('select gl_name from users where id = ?', (id,)):

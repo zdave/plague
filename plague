@@ -47,12 +47,10 @@ def games_for_names(names, gl):
     def good(game):
         return ok(game) and ((game.good_players is None) or (len(names) in game.good_players))
 
-    good_games = [game for game in gl.games if good(game)]
-    if good_games:
+    if good_games := [game for game in gl.games if good(game)]:
         return good_games
 
-    ok_games = [game for game in gl.games if ok(game)]
-    if ok_games:
+    if ok_games := [game for game in gl.games if ok(game)]:
         return ok_games
 
     raise common.Error('Sorry man, got nothin\'. Maybe go outside?')
@@ -81,8 +79,7 @@ def find_config():
     rel_filename = 'plague/config.toml'
 
     for root in roots:
-        filename = os.path.join(root, rel_filename)
-        if os.path.exists(filename):
+        if os.path.exists(filename := os.path.join(root, rel_filename)):
             return filename
 
     raise ConfigNotFoundError(f'could not find {rel_filename} in {or_seq(roots)}')
@@ -203,15 +200,13 @@ async def deets(state, message, args):
 async def whohas(state, message, args):
     title = args
     for game in await state.matching_games(title):
-        names = sorted(name for name, owns in game.owns.items() if owns)
-        if names:
+        if names := sorted(name for name, owns in game.owns.items() if owns):
             formatted_names = []
             for name in names:
-                id = state.db.try_user_id_from_gl_name(name)
-                if id is None:
-                    formatted_names.append(name)
-                else:
+                if (id := state.db.try_user_id_from_gl_name(name)) is not None:
                     formatted_names.append(f'<@{id}>')
+                else:
+                    formatted_names.append(name)
             await reply(message, f'Who owns {game.title}? {and_seq(formatted_names)}.')
         else:
             await reply(message, f'Noone owns {game.title}. '
@@ -267,8 +262,7 @@ def make_client(state):
         if message.author == client.user:
             return
 
-        m = command_re.match(message.content)
-        if m:
+        if m := command_re.match(message.content):
             name = m.group('name')
             args = m.group('args')
             print(f'Got command {name} from {message.author} with args "{args}"', file=sys.stderr, flush=True)

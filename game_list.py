@@ -46,14 +46,13 @@ class Range:
 _num_plus_re = re.compile(r'([0-9]+)\+')
 
 def _num_range(s):
-    m = _num_plus_re.search(s)
-    if m:
+    if m := _num_plus_re.search(s):
         return Range(int(m.group(1)), None)
 
-    nums = list(_nums(s))
-    if not nums:
-        return None
-    return Range(min(nums), max(nums))
+    if nums := list(_nums(s)):
+        return Range(min(nums), max(nums))
+
+    return None
 
 _Field = collections.namedtuple('_Field',
     'name heading_re parse sub_heading_row required',
