@@ -240,8 +240,7 @@ async def handle_command(state, message, name, args):
         except KeyError:
             raise common.Error(
                 f'I can\'t help you with {name}, sorry. Say **!help** to get a list of valid commands.')
-        else:
-            await command.func(state, message, args)
+        await command.func(state, message, args)
     except common.Error as e:
         await reply(message, str(e))
     except Exception as e:

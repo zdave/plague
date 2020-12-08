@@ -56,7 +56,7 @@ def _num_range(s):
 
 _Field = collections.namedtuple('_Field',
     'name heading_re parse sub_heading_row required',
-    defaults=(lambda s: s, None, False,))
+    defaults=(lambda s: s, None, False))
 
 _fields = [
     _Field('title', re.compile('title', re.IGNORECASE), required=True),
