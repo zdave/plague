@@ -1,10 +1,93 @@
 import collections
+import functools
 import gspread_asyncio
 from oauth2client.service_account import ServiceAccountCredentials
-import os
 import re
 
 import common
+
+## Range & co
+
+@functools.total_ordering
+class _Least:
+    # Default __eq__ is fine assuming there is only one instance
+
+    def __gt__(self, other):
+        return False
+
+least = _Least()
+
+@functools.total_ordering
+class _Greatest:
+    # Default __eq__ is fine assuming there is only one instance
+
+    def __lt__(self, other):
+        return False
+
+greatest = _Greatest()
+
+def _round_low_to_multiple(low, multiple_of):
+    return low if low is least else low + (-low % multiple_of)
+
+def _round_high_to_multiple(high, multiple_of):
+    return high if high is greatest else high - (high % multiple_of)
+
+class Range:
+    def __init__(self, low, high, multiple_of=1):
+        assert (low is least) or isinstance(low, int)
+        assert (high is greatest) or isinstance(high, int)
+        assert isinstance(multiple_of, int)
+
+        self.low = _round_low_to_multiple(low, multiple_of)
+        self.high = _round_high_to_multiple(high, multiple_of)
+        self.multiple_of = multiple_of
+
+    def __bool__(self):
+        return self.low <= self.high
+
+    def __contains__(self, x):
+        return (self.low <= x <= self.high) and ((x % self.multiple_of) == 0)
+
+    def __str__(self):
+        if not self:
+            return 'none'
+
+        if self.low is least:
+            if self.high is greatest:
+                s = 'any'
+            else:
+                s = f'up to {self.high}'
+        elif self.high is greatest:
+            s = f'{self.low}+'
+        elif self.low == self.high:
+            return f'{self.low}'
+        else:
+            s = f'{self.low}..{self.high}'
+
+        if self.multiple_of == 1:
+            return s
+        if self.multiple_of == 2:
+            return f'{s} even'
+        return f'{s} multiple of {self.multiple_of}'
+
+    def simplified(self, implicit_low, implicit_high):
+        assert (implicit_low is least) or isinstance(implicit_low, int)
+        assert (implicit_high is greatest) or isinstance(implicit_high, int)
+
+        implicit_low = _round_low_to_multiple(implicit_low, self.multiple_of)
+        implicit_high = _round_high_to_multiple(implicit_high, self.multiple_of)
+
+        low = max(self.low, implicit_low)
+        high = min(self.high, implicit_high)
+
+        if low >= high:
+            # Either empty or one number in range
+            return Range(low, high)
+
+        return Range(
+            least if low == implicit_low else low,
+            greatest if high == implicit_high else high,
+            self.multiple_of)
 
 ## Parsing
 
@@ -17,40 +100,16 @@ def _nums(s):
 def _max_num(s):
     return max(_nums(s), default=None)
 
-class Range:
-    def __init__(self, low, high):
-        assert (low is None) or (high is None) or (low <= high)
-        self.low = low
-        self.high = high
-
-    def __contains__(self, x):
-        if self.low is None:
-            if self.high is None:
-                return True
-            return x <= self.high
-        if self.high is None:
-            return x >= self.low
-        return self.low <= x <= self.high
-
-    def __str__(self):
-        if self.low is None:
-            if self.high is None:
-                return 'any'
-            return f'up to {self.high}'
-        if self.high is None:
-            return f'{self.low}+'
-        if self.low == self.high:
-            return f'{self.low}'
-        return f'{self.low}..{self.high}'
-
 _num_plus_re = re.compile(r'([0-9]+)\+')
 
 def _num_range(s):
+    multiple_of = 2 if 'even' in s.lower() else 1
+
     if m := _num_plus_re.search(s):
-        return Range(int(m.group(1)), None)
+        return Range(int(m.group(1)), greatest, multiple_of)
 
     if nums := list(_nums(s)):
-        return Range(min(nums), max(nums))
+        return Range(min(nums), max(nums), multiple_of)
 
     return None
 
@@ -73,23 +132,12 @@ def _fixup(game):
     if game.good_players is None:
         return game
 
-    if ((game.good_players.low is not None) and (game.max_players is not None) and
-            (game.good_players.low > game.max_players)):
-        # Assume we didn't parse the good players field properly...
-        return game._replace(good_players=None)
+    if good_players := game.good_players.simplified(1,
+            greatest if game.max_players is None else game.max_players):
+        return game._replace(good_players=good_players)
 
-    low = game.good_players.low
-    if (low is not None) and (low <= 1):
-        low = None
-
-    high = game.good_players.high
-    if game.max_players is not None:
-        if (high is not None) and (high >= game.max_players):
-            high = None
-        if (high is None) and (low is not None) and (low == game.max_players):
-            high = low
-
-    return game._replace(good_players=Range(low, high))
+    # Assume we didn't parse the good players field properly...
+    return game._replace(good_players=None)
 
 class _Loc:
     def __init__(self, field):
