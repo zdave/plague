@@ -188,6 +188,8 @@ async def deets(state, message, args):
     title = args
     for game in await state.matching_games(title):
         facts = []
+        if game.platform:
+            facts.append(f'Platform {game.platform}.')
         if game.max_players is not None:
             facts.append(f'Max players {game.max_players}.')
         if game.good_players is not None:

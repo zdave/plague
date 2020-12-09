@@ -119,6 +119,7 @@ _Field = collections.namedtuple('_Field',
 
 _fields = [
     _Field('title', re.compile('title', re.IGNORECASE), required=True),
+    _Field('platform', re.compile('platform', re.IGNORECASE)),
     _Field('max_players', re.compile('max.+player', re.IGNORECASE), _max_num),
     _Field('good_players', re.compile('good.+player', re.IGNORECASE), _num_range),
     _Field('owns', re.compile('who.+owns', re.IGNORECASE), bool, sub_heading_row=2)]
