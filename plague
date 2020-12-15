@@ -90,7 +90,7 @@ def find_config():
         if os.path.exists(filename := os.path.join(root, rel_filename)):
             return filename
 
-    raise ConfigNotFoundError(f'could not find {rel_filename} in {or_seq(roots)}')
+    raise ConfigNotFoundError(f'Could not find {rel_filename} in {or_seq(roots)}')
 
 class Config:
     def __init__(self, filename):
