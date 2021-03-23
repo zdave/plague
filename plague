@@ -257,7 +257,7 @@ async def handle_command(state, message, name, args):
         traceback.print_exc()
         await reply(message, f'Computer says no: {e}')
 
-command_re = re.compile(r'!(?P<name>[a-z]+)(?:\s+|$)(?P<args>.*?)\s*$')
+command_re = re.compile(r'!(?P<name>[a-z]+)(?:\s+|$)(?P<args>.*?)\s*')
 
 def make_client(state):
     client = discord.Client()
@@ -271,7 +271,7 @@ def make_client(state):
         if message.author == client.user:
             return
 
-        if m := command_re.match(message.content):
+        if m := command_re.fullmatch(message.content):
             name = m.group('name')
             args = m.group('args')
             print(f'Got command {name} from {message.author} with args "{args}"', file=sys.stderr, flush=True)
