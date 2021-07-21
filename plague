@@ -111,7 +111,7 @@ def init_db(args, cfg):
 
 class State:
     def __init__(self, cfg):
-        self.__cfg = cfg
+        self.cfg = cfg
         self.db = database.Db(cfg.db)
         self.__gl_session = game_list.Session(cfg.gsheets_creds)
 
@@ -119,7 +119,7 @@ class State:
         self.db.close()
 
     async def fetch_gl(self):
-        return await self.__gl_session.fetch(self.__cfg.game_list_id)
+        return await self.__gl_session.fetch(self.cfg.game_list_id)
 
     async def games_for_ids(self, ids):
         names = [self.db.get_user_gl_name(id) for id in ids]
@@ -176,6 +176,10 @@ async def forgetme(state, message, args):
     await reply(message, 'Good riddance.')
 
 ## Game list query commands
+
+@command('I\'ll give you the link to the spreadsheet.')
+async def sheet(state, message, args):
+    await reply(message, f'https://docs.google.com/spreadsheets/d/{state.cfg.game_list_id}/edit')
 
 @command('Tell me who you\'re playing with and I\'ll recommend you some games.', args='@someone @someone-else')
 async def games(state, message, args):
